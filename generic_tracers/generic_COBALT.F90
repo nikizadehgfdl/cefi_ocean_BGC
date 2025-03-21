@@ -153,6 +153,7 @@ module generic_COBALT
   use cobalt_send_diag, only : cobalt_send_diagnostics
   use cobalt_reg_diag, only : cobalt_reg_diagnostics
   use cobalt_param_doc, only : get_COBALT_param_file
+  use generic_CBED
 
   use MOM_file_parser,   only : read_param, get_param, log_version, param_file_type, close_param_file
 
@@ -178,9 +179,10 @@ module generic_COBALT
                                              !! as_param in generic_tracer_nml by generic_tracer.F90, 
                                              !! but can be replaced by setting as_param_cobalt
                                              !! in generic_COBALT_nml.
+  logical :: do_CBED = .false. !< If true calls CBED subrotine(s) to calculate and set bottom fluxes
 
   namelist /generic_COBALT_nml/ co2_calc, do_14c, do_nh3_atm_ocean_exchange, scheme_nitrif, debug, &
-     do_vertfill_pre,imbalance_tolerance,as_param_cobalt
+     do_vertfill_pre,imbalance_tolerance,as_param_cobalt, do_CBED
   
   !
   ! Array allocations and flux calculations assume that phyto(1) is the
@@ -4756,29 +4758,20 @@ contains
 ! 5: Sediment, coastal and ice dynamics
 !-------------------------------------------------------------------------------------------------
 !
+    ! Local variables used to determine the layers falling within the bottom thickness
+    allocate(rho_dzt_bot(isc:iec,jsc:jec))
+    allocate(k_bot(isc:iec,jsc:jec))
 
-    ! Nutrient inputs associated with icebergs/frozen runoff.  This is currently entered as a surface flux.  The
-    ! parameters "jfe_iceberg_ratio", "jno3_iceberg_ratio" and "jpo4_iceberg_ratio" are the ratios of nutrient input
-    ! per kg of runoff.  For iron, values can be set within the broad ranges discussed in Laufkotter et al. (2018).
-    ! These inputs are currently entered at the ocean surface, but they have defined within a 3D array to allow
-    ! eventual consideration of depth-dependent inputs.
-    do j = jsc, jec ; do i = isc, iec !{
-       ! CAS: Is this check relevant for MOM6?
-       if (grid_kmt(i,j) .gt. 0) then !{
-          cobalt%jfe_iceberg(i,j,1) = cobalt%jfe_iceberg_ratio*max(frunoff(i,j),0.0)/rho_dzt(i,j,1)
-          cobalt%jno3_iceberg(i,j,1) = cobalt%jno3_iceberg_ratio*max(frunoff(i,j),0.0)/rho_dzt(i,j,1)
-          cobalt%jpo4_iceberg(i,j,1) = cobalt%jpo4_iceberg_ratio*max(frunoff(i,j),0.0)/rho_dzt(i,j,1)
-       endif !}
-    enddo; enddo  !} i,j
+    if (do_CBED) then
+      !Note that CBED subroutine MUST set the '_btm' fluxes
+      call generic_CBED_sediments_update_from_source(tracer_list, cobalt, phyto, ilb, jlb, mask_coast, &
+           grid_tmask, grid_dat, grid_kmt, isc,iec, jsc,jec, isd, jsd, nk, r_dt, dt, frunoff, rho_dzt, dzt, internal_heat)
+    else
 
     ! Calculate the bottom conditions and the fluxes to the bottom for diagnostics and benthic flux calculations.
     ! MOM4/5 used the bottom grid cell, but MOM6 often has a number of vanishingly thin layers overlying the bottom.
     ! Grid scale noise in these layers can occur, particularly for quantities with large bottom fluxes.  COBALT thus
     ! uses conditions over a specified bottom layer thickness (cobalt%bottom_thickness, default = 1m) for bottom calcs.
-
-    ! Local variables used to determine the layers falling within the bottom thickness
-    allocate(rho_dzt_bot(isc:iec,jsc:jec))
-    allocate(k_bot(isc:iec,jsc:jec))
 
     do j = jsc, jec; do i = isc, iec  !{
        if (grid_kmt(i,j) .gt. 0) then !{
@@ -5074,8 +5067,6 @@ contains
        cobalt%f_cased(i,j,k) = 0.0
     enddo; enddo ; enddo  !} i,j,k
 
-    call mpp_clock_end(id_clock_ballast_loops)
-
     call g_tracer_set_values(tracer_list,'alk',  'btf', cobalt%b_alk ,isd,jsd)
     call g_tracer_set_values(tracer_list,'dic',  'btf', cobalt%b_dic ,isd,jsd)
     call g_tracer_set_values(tracer_list,'fed',  'btf', cobalt%b_fed ,isd,jsd)
@@ -5085,6 +5076,10 @@ contains
     call g_tracer_set_values(tracer_list,'po4',  'btf', cobalt%b_po4 ,isd,jsd)
     call g_tracer_set_values(tracer_list,'sio4', 'btf', cobalt%b_sio4,isd,jsd)
 !
+    endif !do_CBED
+
+    call mpp_clock_end(id_clock_ballast_loops)
+
     call mpp_clock_begin(id_clock_source_sink_loop1)
 !
 !-----------------------------------------------------------------------
@@ -5142,6 +5137,19 @@ contains
        call g_tracer_get_pointer(tracer_list,'do14c','field',cobalt%p_do14c)
     endif
 
+    ! Nutrient inputs associated with icebergs/frozen runoff.  This is currently entered as a surface flux.  The
+    ! parameters "jfe_iceberg_ratio", "jno3_iceberg_ratio" and "jpo4_iceberg_ratio" are the ratios of nutrient input
+    ! per kg of runoff.  For iron, values can be set within the broad ranges discussed in Laufkotter et al. (2018).
+    ! These inputs are currently entered at the ocean surface, but they have defined within a 3D array to allow
+    ! eventual consideration of depth-dependent inputs.
+    do j = jsc, jec ; do i = isc, iec !{
+       ! CAS: Is this check relevant for MOM6?
+       if (grid_kmt(i,j) .gt. 0) then !{
+          cobalt%jfe_iceberg(i,j,1) = cobalt%jfe_iceberg_ratio*max(frunoff(i,j),0.0)/rho_dzt(i,j,1)
+          cobalt%jno3_iceberg(i,j,1) = cobalt%jno3_iceberg_ratio*max(frunoff(i,j),0.0)/rho_dzt(i,j,1)
+          cobalt%jpo4_iceberg(i,j,1) = cobalt%jpo4_iceberg_ratio*max(frunoff(i,j),0.0)/rho_dzt(i,j,1)
+       endif !}
+    enddo; enddo  !} i,j
     ! CAS calculate total N and P before source/sink
     ! calculate internal sources (those not applied as air-sea or benthos
     ! exchanges) to close the balance
