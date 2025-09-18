@@ -7,7 +7,7 @@ use g_tracer_utils, only : register_diag_field=>g_register_diag_field, g_send_da
 use cobalt_types,   only : generic_COBALT_type, phytoplankton, missing_value1, sperd, spery, epsln
 use cobalt_types,   only : SMALL, MEDIUM, LARGE, DIAZO, NUM_PHYTO
 use time_manager_mod,  only: time_type
-use field_manager_mod, only: fm_string_len, fm_path_name_len
+use field_manager_mod, only: fm_string_len
 use mpp_domains_mod,  only : domain2D,mpp_define_io_domain
 use fms2_io_mod, only: FmsNetcdfDomainFile_t, open_file, close_file, read_restart, write_restart
 use fms2_io_mod, only: register_restart_field, register_axis
