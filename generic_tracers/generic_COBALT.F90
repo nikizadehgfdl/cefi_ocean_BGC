@@ -138,6 +138,7 @@ module generic_COBALT
   use data_override_mod, only: data_override
   use fms_mod,           only: write_version_number, FATAL, WARNING, stdout, stdlog,mpp_pe,mpp_root_pe
   use fms_mod,           only: check_nml_error
+   use ml_dump_mod,      only: ml_dump_init, ml_dump_record, ml_dump_close
   use MOM_EOS,           only: calculate_density, EOS_type
 
   use g_tracer_utils, only : g_tracer_type,g_tracer_start_param_list,g_tracer_end_param_list
@@ -3260,6 +3261,8 @@ contains
        cobalt%htotalhi(i,j) = cobalt%htotal_scale_hi * cobalt%f_htotal(i,j,k)
     enddo; enddo ; !} i, j
 
+    ! initialize ML dump file (will open once)
+    call ml_dump_init('co2_training_dump.csv')
 
     call FMS_co2calc(CO2_dope_vec,grid_tmask(:,:,k),&
          Temp(:,:,k), Salt(:,:,k),                    &
@@ -3278,6 +3281,17 @@ contains
          co3_ion=cobalt%f_co3_ion(:,:,k), &
          omega_arag=cobalt%omega_arag(:,:,k), &
          omega_calc=cobalt%omega_calc(:,:,k))
+
+    ! Dump per-cell records for k=1
+    do j = jsc, jec ; do i = isc, iec
+       if (grid_tmask(i,j,k) .gt. 0.0) then
+          call ml_dump_record(Temp(i,j,k), Salt(i,j,k), &
+               cobalt%f_dic(i,j,k), cobalt%f_po4(i,j,k), cobalt%f_sio4(i,j,k), cobalt%f_alk(i,j,k), &
+               cobalt%htotallo(i,j), cobalt%htotalhi(i,j), cobalt%f_htotal(i,j,k), cobalt%zt(i,j,k), &
+               cobalt%co2_csurf(i,j), cobalt%co2_alpha(i,j), cobalt%pco2_csurf(i,j), &
+               cobalt%f_co3_ion(i,j,k), cobalt%omega_arag(i,j,k), cobalt%omega_calc(i,j,k))
+       end if
+    enddo; enddo
 
     do k = 2, nk
        do j = jsc, jec ; do i = isc, iec  !{
@@ -3300,6 +3314,17 @@ contains
             co3_ion=cobalt%f_co3_ion(:,:,k), &
             omega_arag=cobalt%omega_arag(:,:,k), &
             omega_calc=cobalt%omega_calc(:,:,k))
+       ! Dump per-cell records for this k
+       do j = jsc, jec ; do i = isc, iec
+          if (grid_tmask(i,j,k) .gt. 0.0) then
+             call ml_dump_record(Temp(i,j,k), Salt(i,j,k), &
+                  cobalt%f_dic(i,j,k), cobalt%f_po4(i,j,k), cobalt%f_sio4(i,j,k), cobalt%f_alk(i,j,k), &
+                  cobalt%htotallo(i,j), cobalt%htotalhi(i,j), cobalt%f_htotal(i,j,k), cobalt%zt(i,j,k), &
+                 !cobalt%co2_csurf(i,j), cobalt%co2_alpha(i,j), cobalt%pco2_csurf(i,j), &
+                  -9999.0, -9999.0, -9999.0, &
+                  cobalt%f_co3_ion(i,j,k), cobalt%omega_arag(i,j,k), cobalt%omega_calc(i,j,k))
+          end if
+       enddo; enddo
     enddo
 
     call g_tracer_set_values(tracer_list,'htotal','field',cobalt%f_htotal  ,isd,jsd)
